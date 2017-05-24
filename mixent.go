@@ -3,7 +3,10 @@
 // license that can be found in the LICENSE file.
 
 // mixent implements routines for estimating the entropy of a mixture distribution.
-// See PAPER for more information.
+// See
+//  Estimating Mixture Entropy using Pairwise Distances by A. Kolchinksy and
+//  B. Tracey
+// for more information.
 // Documentation notation: the mixture distribution is
 //  p(x) = \sum_{i=1}^N w_i p_i(x)
 // The symbol X will be used to represent the mixture distribution p(x), and
@@ -45,9 +48,14 @@ type Distancer interface {
 	Distance(a, b Component) float64
 }
 
+// DistNormaler is a type that can compute the distance between two Normal distributions.
+type DistNormaler interface {
+	DistNormal(l, r *distmv.Normal) float64
+}
+
 // NormalDistance wraps a DistNormaler for use with components.
 type NormalDistance struct {
-	distmv.DistNormaler
+	DistNormaler
 }
 
 // Distance computes the distance between two Normal components. Distance panics
@@ -59,9 +67,14 @@ func (n NormalDistance) Distance(l, r Component) float64 {
 	return n.DistNormal(l1, l2)
 }
 
+// DistNormaler is a type that can compute the distance between two Normal distributions.
+type DistUniformer interface {
+	DistUniform(l, r *distmv.Uniform) float64
+}
+
 // NormalDistance wraps a DistUniformer for use with components.
 type UniformDistance struct {
-	distmv.DistUniformer
+	DistUniformer
 }
 
 // Distance computes the distance between two Normal components. Distance panics
@@ -196,9 +209,12 @@ type PairwiseDistance struct {
 // MixtureEntropy estimates the entropy using a distance metric between each pair
 // of distributions. It implements EQUATION IN PAPER, that is
 //  H(x) ≈ \sum_i w_i H(X_i) - \sum_i w_i ln(\sum_j w_j exp(-D(X_i || X_j)))
-// As shown in Kolchinsky, Tracey and Wolpert this estimator has several nice
-// properties (see the paper for necessary conditions on D).
-//  CITATION
+// As shown in
+//  Estimating Mixture Entropy using Pairwise Distances by A. Kolchinksy and
+//  B. Tracey
+// this estimator has several nice properties (see the paper for the necessary
+// conditions on D for the following to hold).
+//
 // 1) The estimate returned is always larger than Conditional and smaller than
 // JointMixtureWeight. These two estimators differ by H(weights), so this provides
 // a bound on the error.

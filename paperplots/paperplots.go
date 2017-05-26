@@ -156,9 +156,8 @@ func GetRun(name string) Run {
 	var isUniform bool
 
 	c := Run{
-		Name:             name,
-		MCEntropySamples: 3000,
-		NumComponents:    100,
+		Name:          name,
+		NumComponents: 100,
 	}
 
 	switch name {
@@ -196,7 +195,7 @@ func GetRun(name string) Run {
 			hypers[i] = math.Exp(v)
 		}
 
-		// Geterate centers from uniform ball
+		// Generate centers from uniform ball
 		nClusters := 5
 		centers := mat64.NewDense(nClusters, dim, nil)
 		for i := 0; i < nClusters; i++ {
@@ -266,7 +265,7 @@ func GetRun(name string) Run {
 	case "unif_sweep_skew":
 		isUniform = true
 		dim := 10
-		hypers := make([]float64, 30)
+		hypers := make([]float64, 50)
 		floats.Span(hypers, -5, 5)
 		for i, v := range hypers {
 			hypers[i] = math.Exp(v)
@@ -283,16 +282,20 @@ func GetRun(name string) Run {
 			mixent.AvgEnt{},
 			mixent.PairwiseDistance{mixent.UniformDistance{distmv.KullbackLeibler{}}},
 			mixent.PairwiseDistance{mixent.UniformDistance{distmv.Bhattacharyya{}}},
+			mixent.ComponentCenters{},
+			mixent.ELK{},
 		}
+		c.MCEntropySamples = 5000
 	} else {
 		c.Estimators = []mixent.Estimator{
 			mixent.JointEntropy{},
 			mixent.AvgEnt{},
-			mixent.LowerGaussian{},
 			mixent.PairwiseDistance{mixent.NormalDistance{distmv.KullbackLeibler{}}},
 			mixent.PairwiseDistance{mixent.NormalDistance{distmv.Bhattacharyya{}}},
 			mixent.ComponentCenters{},
+			mixent.ELK{},
 		}
+		c.MCEntropySamples = 2000
 	}
 	return c
 }
@@ -487,19 +490,17 @@ func (u UniformFixedCenter) CompDim(hyper float64) int {
 
 func (u UniformFixedCenter) NumRandom() int {
 	// Center location + Gamma quantile.
-	return 2 * u.Dim
+	return u.Dim + 1
 }
 
 func (u UniformFixedCenter) ComponentFrom(rands []float64, hyper float64) Component {
 	bounds := make([]distmv.Bound, u.Dim)
-	for i := 0; i < len(rands); i += 2 {
-		// mean is the first random variable
+	// width is last random variable
+	width := distuv.Gamma{Alpha: 1 + hyper, Beta: 1 + hyper}.Quantile(rands[u.Dim])
+	for i := 0; i < u.Dim; i++ {
 		mean := rands[i] - 0.5
-		// width is second
-		width := distuv.Gamma{Alpha: 1 + hyper, Beta: 1 + hyper}.Quantile(rands[i+1])
-
-		bounds[i/2].Max = mean + width/2
-		bounds[i/2].Min = mean - width/2
+		bounds[i].Min = mean - width/2
+		bounds[i].Max = mean + width/2
 	}
 	return distmv.NewUniform(bounds, nil)
 }
@@ -663,10 +664,10 @@ func plotMapName(e mixent.Estimator) (string, draw.LineStyle) {
 		ls.Color = plotutil.Color(1)
 		ls.Dashes = plotutil.Dashes(1)
 		return "Huber Upper", ls
-	case mixent.LowerGaussian:
+	case mixent.ELK:
 		ls.Color = plotutil.Color(2)
 		ls.Dashes = plotutil.Dashes(2)
-		return "Huber Lower", ls
+		return "Exp. Lik. Ker.", ls
 	case mixent.AvgEnt:
 		ls.Color = plotutil.Color(3)
 		ls.Dashes = plotutil.Dashes(3)
@@ -694,6 +695,10 @@ func plotMapName(e mixent.Estimator) (string, draw.LineStyle) {
 			ls.Color = plotutil.Color(6)
 			ls.Dashes = plotutil.Dashes(6)
 			return "Pair Dist: Bhat.", ls
+		case mixent.ELKDist:
+			ls.Color = plotutil.Color(7)
+			ls.Dashes = plotutil.Dashes(7)
+			return "Pair Dist: ELK", ls
 		}
 	}
 }

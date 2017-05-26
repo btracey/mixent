@@ -86,70 +86,103 @@ func (u UniformDistance) Distance(l, r Component) float64 {
 	return u.DistUniform(l1, l2)
 }
 
-// LowerGaussian is a lower bound on the entropy of a mixture of Gaussians.
-// See the MixtureEntropy method for more information.
-type LowerGaussian struct{}
-
-// MixtureEntropy computes a lower bound on the entropy of a mixture of Gaussians.
-// It implements Section V.A, Theorem 2 of
-//  Huber, Marco F., et al. "On entropy approximation for Gaussian mixture
-//  random vectors." Multisensor Fusion and Integration for Intelligent Systems,
-//  2008. MFI 2008. IEEE International Conference on. IEEE, 2008.
-// The entropy estimate is
-//  H(x) ≈ -\sum_i w_i log(\sum_j w_j z_{i,j})
-//  z_{i,j} = 𝒩(μ_i; μ_j, Σ_i+Σ_j)
-// All of the mixture components must be *distmv.Normal and must have the same
-// input dimension or MixtureEntropy will panic.
-//
-// If weights is nil, all components are assumed to have the same mixture entropy.
-func (l LowerGaussian) MixtureEntropy(components []Component, weights []float64) float64 {
-	n := len(components)
-
-	// Convert the Component to *distmv.Normal and check the dimensions.
-	norms := make([]*distmv.Normal, n)
-	norms[0] = components[0].(*distmv.Normal)
-	dim := norms[0].Dim()
-	for i := 1; i < n; i++ {
-		norm := components[i].(*distmv.Normal)
-		if norm.Dim() != dim {
-			panic(dimensionMismatch)
+// unifLogVolOverlap computes the log of the volume of the hyper-rectangle where
+// both uniform distributions have positive probability.
+func unifLogVolOverlap(b1, b2 []distmv.Bound) float64 {
+	var logVolOverlap float64
+	for dim, v1 := range b1 {
+		v2 := b2[dim]
+		// If the surfaces don't overlap, then the volume is 0
+		if v1.Max <= v2.Min || v2.Max <= v1.Min {
+			return math.Inf(-1)
 		}
-		norms[i] = norm
+		vol := math.Min(v1.Max, v2.Max) - math.Max(v1.Min, v2.Min)
+		logVolOverlap += math.Log(vol)
 	}
+	return logVolOverlap
+}
+
+// ELK implements the Expected Likelihood Kernel.
+//  ELX(X_i, X_j) = \int_x p_i(x) p_j(x) dx
+// The Expected Likelihood Kernel can be used to find a lower bound on the mixture
+// entropy. See the Mixture Entropy method for more information
+type ELK struct{}
+
+// KernelNormal computes the log of the Expected Likelihood Kernel for two Gaussians.
+//  ELK = 𝒩(μ_i; μ_j, Σ_i+Σ_j)
+func (ELK) LogKernelNormal(l, r *distmv.Normal) float64 {
+	if l.Dim() != r.Dim() {
+		panic("mixent: normal dimension mismatch")
+	}
+	covl := l.CovarianceMatrix(nil)
+	covr := r.CovarianceMatrix(nil)
+	covSum := mat64.NewSymDense(l.Dim(), nil)
+	covSum.AddSym(covl, covr)
+	norm, ok := distmv.NewNormal(r.Mean(nil), covSum, nil)
+	if !ok {
+		// This should be impossible because the sum of PSD matrices is PSD.
+		panic("mixent: covariance sum not positive definite")
+	}
+	return norm.LogProb(l.Mean(nil))
+}
+
+func (ELK) LogKernelUniform(l, r *distmv.Uniform) float64 {
+	// ELK is \int_x p_i(x) p_j(x) dx. So the value is constant over the region
+	// of overlap.
+	// = volume * p(x) * q(x)
+	// = log(vol) + log(p(x)) + log(q(x))
+	bl := l.Bounds(nil)
+	br := r.Bounds(nil)
+	overlap := unifLogVolOverlap(bl, br)
+	logPl := -l.Entropy()
+	logPr := -r.Entropy()
+	return overlap + logPl + logPr
+}
+
+// MixtureEntropy computes an estimate of the mixture entropy using the Expected
+// Likelihood kernel. The lower bound is
+//  H(x) ≈ -\sum_i w_i log(\sum_j w_j z_{i,j})
+// Currently only works with components that are *distmv.Normal or *distmv.Uniform.
+func (elk ELK) MixtureEntropy(components []Component, weights []float64) float64 {
+	n := len(components)
 	if weights == nil {
 		weights = make([]float64, n)
 		for i := range weights {
 			weights[i] = 1 / float64(n)
 		}
 	}
-
-	// Create memory storage.
-	mui := make([]float64, dim)
-	muj := make([]float64, dim)
-	covi := mat64.NewSymDense(dim, nil)
-	covj := mat64.NewSymDense(dim, nil)
-	covSum := mat64.NewSymDense(dim, nil)
+	if len(weights) != len(components) {
+		panic("mixent: length mismatch")
+	}
 	inner := make([]float64, n)
-
-	// Estimate entropy.
 	var ent float64
-	for i, a := range norms {
-		a.Mean(mui)
-		a.CovarianceMatrix(covi)
-		for j, b := range norms {
-			b.Mean(muj)
-			b.CovarianceMatrix(covj)
-			covSum.AddSym(covi, covj)
-			norm, ok := distmv.NewNormal(muj, covSum, nil)
-			if !ok {
-				// This should be impossible because the sum of PSD matrices is PSD.
-				panic("mixent: covariance sum not positive definite")
+	for i, a := range components {
+		for j, b := range components {
+			var logKernel float64
+			switch t := a.(type) {
+			case *distmv.Normal:
+				logKernel = elk.LogKernelNormal(t, b.(*distmv.Normal))
+			case *distmv.Uniform:
+				logKernel = elk.LogKernelUniform(t, b.(*distmv.Uniform))
 			}
-			inner[j] = norm.LogProb(mui) + math.Log(weights[j])
+			inner[j] = logKernel + math.Log(weights[j])
 		}
 		ent -= weights[i] * floats.LogSumExp(inner)
 	}
 	return ent
+}
+
+// ELKDist is a distance metric based on the expected likelihood distance.
+// It is equal to
+//  - ln(ELK(X_i, X_j)/sqrt(ELK(X_i,X_i)*ELK(X_j,X_j)))
+type ELKDist struct{}
+
+func (ELKDist) DistNormal(l, r *distmv.Normal) float64 {
+	return -ELK{}.LogKernelNormal(l, r) + 0.5*ELK{}.LogKernelNormal(l, l) + 0.5*ELK{}.LogKernelNormal(r, r)
+}
+
+func (ELKDist) DistUniform(l, r *distmv.Uniform) float64 {
+	return -ELK{}.LogKernelUniform(l, r) + 0.5*ELK{}.LogKernelUniform(l, l) + 0.5*ELK{}.LogKernelUniform(r, r)
 }
 
 // JointEntropy provides an upper bound on the mixture entropy using
@@ -258,39 +291,67 @@ func (p PairwiseDistance) MixtureEntropy(components []Component, weights []float
 // centers.
 type ComponentCenters struct{}
 
+func (ComponentCenters) gaussianCenters(components []Component) *mat64.Dense {
+	r := len(components)
+	c := components[0].(*distmv.Normal).Dim()
+
+	centers := mat64.NewDense(r, c, nil)
+	for i := 0; i < r; i++ {
+		centers.SetRow(i, components[i].(*distmv.Normal).Mean(nil))
+	}
+	return centers
+}
+
+func (ComponentCenters) uniformCenters(components []Component) *mat64.Dense {
+	r := len(components)
+	c := components[0].(*distmv.Uniform).Dim()
+
+	centers := mat64.NewDense(r, c, nil)
+	for i := 0; i < r; i++ {
+		b := components[i].(*distmv.Uniform).Bounds(nil)
+		for j := range b {
+			centers.Set(i, j, (b[j].Max+b[j].Min)/2)
+		}
+	}
+	return centers
+}
+
 // MixtureEntropy computes the estimate of the entropy based on the average
 // probability of the cluster centers.
 //  H(x) ≈ - \sum_i w_i ln \sum_j w_j p_j(μ_i)
 // If weights is nil, all components are assumed to have the same mixture entropy.
 //
-// Currently only coded for Gaussian components.
-func (p ComponentCenters) MixtureEntropy(components []Component, weights []float64) float64 {
-	n := len(components)
-	norms := make([]*distmv.Normal, n)
-	norms[0] = components[0].(*distmv.Normal)
-	dim := norms[0].Dim()
-	for i := 1; i < n; i++ {
-		norm := components[i].(*distmv.Normal)
-		if norm.Dim() != dim {
-			panic(dimensionMismatch)
-		}
-		norms[i] = norm
+// Currently only coded for Gaussian and Uniform components.
+func (comp ComponentCenters) MixtureEntropy(components []Component, weights []float64) float64 {
+	var centers *mat64.Dense
+	switch components[0].(type) {
+	default:
+		panic("componentcenters: unknown mixture type")
+	case *distmv.Normal:
+		centers = comp.gaussianCenters(components)
+	case *distmv.Uniform:
+		centers = comp.uniformCenters(components)
 	}
+
+	n := len(components)
 	if weights == nil {
 		weights = make([]float64, n)
 		for i := range weights {
 			weights[i] = 1 / float64(n)
 		}
 	}
+	if len(weights) != len(components) {
+		panic("mixent: length of components does not match weights")
+	}
 
 	// Compute center probabilities
-	inner := make([]float64, n)
 	var ent float64
-	mean := make([]float64, dim)
-	for i, norm := range norms {
-		norm.Mean(mean)
-		for j, norm2 := range norms {
-			inner[j] = math.Log(weights[j]) + norm2.LogProb(mean)
+	inner := make([]float64, n)
+	for i := range components {
+		center := centers.RawRowView(i)
+		for j, comp := range components {
+			lp := comp.(distmv.LogProber)
+			inner[j] = math.Log(weights[j]) + lp.LogProb(center)
 		}
 		ent += weights[i] * floats.LogSumExp(inner)
 	}

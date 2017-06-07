@@ -166,7 +166,7 @@ func GetRun(name string) Run {
 	case "gauss_sweep_size":
 		dim := 10
 		hypers := make([]float64, 30)
-		floats.Span(hypers, -2, 3)
+		floats.Span(hypers, -2.5, 1.5)
 		for i, v := range hypers {
 			hypers[i] = math.Exp(v)
 		}
@@ -190,17 +190,18 @@ func GetRun(name string) Run {
 	case "gauss_sweep_clusters":
 		dim := 10
 		hypers := make([]float64, 30)
-		floats.Span(hypers, -2, 1)
+		floats.Span(hypers, -2.5, 0.5)
 		for i, v := range hypers {
 			hypers[i] = math.Exp(v)
 		}
 
 		// Generate centers from uniform ball
+		rnd := rand.New(rand.NewSource(1))
 		nClusters := 5
 		centers := mat64.NewDense(nClusters, dim, nil)
 		for i := 0; i < nClusters; i++ {
 			for j := 0; j < dim; j++ {
-				centers.Set(i, j, rand.NormFloat64())
+				centers.Set(i, j, rnd.NormFloat64())
 			}
 		}
 
@@ -210,7 +211,7 @@ func GetRun(name string) Run {
 		c.LogX = true
 	case "gauss_sweep_dim":
 		hypers := make([]float64, 8)
-		floats.Span(hypers, 1, 60)
+		floats.Span(hypers, 1, 25)
 		maxDim := int(hypers[len(hypers)-1])
 
 		c.DistGen = FlexibleDim{maxDim, false}
@@ -231,6 +232,7 @@ func GetRun(name string) Run {
 		c.XLabel = "Ln(Mean Spread)"
 		c.LogX = true
 	case "unif_sweep_clusters":
+		rnd := rand.New(rand.NewSource(1))
 		isUniform = true
 		dim := 10
 		hypers := make([]float64, 30)
@@ -244,7 +246,7 @@ func GetRun(name string) Run {
 		centers := mat64.NewDense(nClusters, dim, nil)
 		for i := 0; i < nClusters; i++ {
 			for j := 0; j < dim; j++ {
-				centers.Set(i, j, rand.NormFloat64())
+				centers.Set(i, j, rnd.NormFloat64())
 			}
 		}
 
@@ -255,7 +257,7 @@ func GetRun(name string) Run {
 	case "unif_sweep_dim":
 		isUniform = true
 		hypers := make([]float64, 8)
-		floats.Span(hypers, 1, 22)
+		floats.Span(hypers, 1, 16)
 		maxDim := int(hypers[len(hypers)-1])
 
 		c.DistGen = FlexibleDim{maxDim, true}
@@ -266,7 +268,7 @@ func GetRun(name string) Run {
 		isUniform = true
 		dim := 10
 		hypers := make([]float64, 50)
-		floats.Span(hypers, -5, 5)
+		floats.Span(hypers, -3.5, 3)
 		for i, v := range hypers {
 			hypers[i] = math.Exp(v)
 		}
@@ -340,13 +342,13 @@ func (n ShiftCenters) ComponentFrom(rands []float64, hyper float64) Component {
 	}
 	mean := make([]float64, len(rands))
 	for i := range mean {
-		mean[i] = rands[i] * hyper
+		mean[i] = distuv.Normal{Mu: 0, Sigma: hyper}.Quantile(rands[i])
 	}
 	if n.Uniform {
 		bounds := make([]distmv.Bound, n.Dim)
 		for i := range bounds {
-			bounds[i].Min = mean[i] - 0.5
-			bounds[i].Max = mean[i] + 0.5
+			bounds[i].Min = mean[i] - 1
+			bounds[i].Max = mean[i] + 1
 		}
 		return distmv.NewUniform(bounds, nil)
 	}
@@ -394,8 +396,8 @@ func (n ClusterCenters) ComponentFrom(rands []float64, hyper float64) Component 
 	if n.Uniform {
 		bounds := make([]distmv.Bound, len(mean))
 		for i := range bounds {
-			bounds[i].Min = mean[i] - 0.5
-			bounds[i].Max = mean[i] + 0.5
+			bounds[i].Min = mean[i] - 1
+			bounds[i].Max = mean[i] + 1
 		}
 		return distmv.NewUniform(bounds, nil)
 	}
@@ -438,7 +440,10 @@ func (w GaussianFixedCenter) ComponentFrom(rands []float64, hyper float64) Compo
 	}
 
 	// The center is just fixed, the first rands.
-	mu := rands[:dim]
+	mu := make([]float64, w.Dim)
+	for i := 0; i < dim; i++ {
+		mu[i] = distuv.Normal{Mu: 0, Sigma: 1}.Quantile(rands[i])
+	}
 	rands = rands[dim:]
 
 	u := mat64.NewTriDense(dim, matrix.Upper, nil)
@@ -498,9 +503,9 @@ func (u UniformFixedCenter) ComponentFrom(rands []float64, hyper float64) Compon
 	// width is last random variable
 	width := distuv.Gamma{Alpha: 1 + hyper, Beta: 1 + hyper}.Quantile(rands[u.Dim])
 	for i := 0; i < u.Dim; i++ {
-		mean := rands[i] - 0.5
-		bounds[i].Min = mean - width/2
-		bounds[i].Max = mean + width/2
+		mean := distuv.Normal{Mu: 0, Sigma: 1}.Quantile(rands[i])
+		bounds[i].Min = mean - width
+		bounds[i].Max = mean + width
 	}
 	return distmv.NewUniform(bounds, nil)
 }
@@ -524,13 +529,15 @@ func (f FlexibleDim) ComponentFrom(rands []float64, hyper float64) Component {
 
 	// Center is the first dim entries
 	mean := make([]float64, dim)
-	copy(mean, rands)
+	for i := 0; i < dim; i++ {
+		mean[i] = distuv.Normal{Mu: 0, Sigma: 1}.Quantile(rands[i])
+	}
 
 	if f.Uniform {
 		bounds := make([]distmv.Bound, len(mean))
 		for i := range bounds {
-			bounds[i].Min = 2 * (mean[i] - 0.5)
-			bounds[i].Max = 2 * (mean[i] + 0.5)
+			bounds[i].Min = (mean[i] - 1)
+			bounds[i].Max = (mean[i] + 1)
 		}
 		return distmv.NewUniform(bounds, nil)
 	}

@@ -13,16 +13,15 @@ import (
 
 	"github.com/btracey/mixent"
 	"github.com/btracey/myplot"
-	"github.com/gonum/floats"
-	"github.com/gonum/matrix"
-	"github.com/gonum/matrix/mat64"
 	"github.com/gonum/plot"
 	"github.com/gonum/plot/plotter"
 	"github.com/gonum/plot/plotutil"
 	"github.com/gonum/plot/vg"
 	"github.com/gonum/plot/vg/draw"
-	"github.com/gonum/stat/distmv"
-	"github.com/gonum/stat/distuv"
+	"gonum.org/v1/gonum/floats"
+	"gonum.org/v1/gonum/mat"
+	"gonum.org/v1/gonum/stat/distmv"
+	"gonum.org/v1/gonum/stat/distuv"
 )
 
 func main() {
@@ -63,7 +62,7 @@ func main() {
 		for i := range randComps {
 			randComps[i] = rnd.Intn(run.NumComponents)
 		}
-		mcSamps := mat64.NewDense(run.MCEntropySamples, maxDim, nil)
+		mcSamps := mat.NewDense(run.MCEntropySamples, maxDim, nil)
 		for i := 0; i < run.MCEntropySamples; i++ {
 			for j := 0; j < maxDim; j++ {
 				mcSamps.Set(i, j, rnd.Float64())
@@ -72,7 +71,7 @@ func main() {
 
 		// Generate the random numbers for components.
 		nRand := run.DistGen.NumRandom()
-		compSamps := mat64.NewDense(run.NumComponents, nRand, nil)
+		compSamps := mat.NewDense(run.NumComponents, nRand, nil)
 		for i := 0; i < run.NumComponents; i++ {
 			for j := 0; j < nRand; j++ {
 				compSamps.Set(i, j, rnd.Float64())
@@ -85,7 +84,7 @@ func main() {
 		components := make([]Component, run.NumComponents)
 		mcEnt := make([]float64, len(run.Hypers)) // store of the entropy from Monte Carlo.
 
-		estEnts := mat64.NewDense(len(run.Hypers), len(run.Estimators), nil) // entropy from estimators.
+		estEnts := mat.NewDense(len(run.Hypers), len(run.Estimators), nil) // entropy from estimators.
 		for i, hyper := range run.Hypers {
 			fmt.Println(name, i, "of", len(run.Hypers))
 
@@ -103,7 +102,7 @@ func main() {
 
 			// Estimate the entropy from Monte Carlo.
 			dim := run.DistGen.CompDim(hyper)
-			sv := mcSamps.Slice(0, run.MCEntropySamples, 0, dim).(*mat64.Dense)
+			sv := mcSamps.Slice(0, run.MCEntropySamples, 0, dim).(*mat.Dense)
 			mcEnt[i] = mcEntropy(components, randComps, sv)
 		}
 
@@ -117,7 +116,7 @@ func main() {
 
 // mcEntropy estimates the entropy of the mixture distribution given the pre-drawn
 // random components and samples.
-func mcEntropy(components []Component, randComps []int, mcSamps *mat64.Dense) float64 {
+func mcEntropy(components []Component, randComps []int, mcSamps *mat.Dense) float64 {
 	nSamp, dim := mcSamps.Dims()
 	if len(randComps) != nSamp {
 		panic("rand mismatch")
@@ -198,7 +197,7 @@ func GetRun(name string) Run {
 		// Generate centers from uniform ball
 		rnd := rand.New(rand.NewSource(1))
 		nClusters := 5
-		centers := mat64.NewDense(nClusters, dim, nil)
+		centers := mat.NewDense(nClusters, dim, nil)
 		for i := 0; i < nClusters; i++ {
 			for j := 0; j < dim; j++ {
 				centers.Set(i, j, rnd.NormFloat64())
@@ -243,7 +242,7 @@ func GetRun(name string) Run {
 
 		// Geterate centers from uniform ball
 		nClusters := 5
-		centers := mat64.NewDense(nClusters, dim, nil)
+		centers := mat.NewDense(nClusters, dim, nil)
 		for i := 0; i < nClusters; i++ {
 			for j := 0; j < dim; j++ {
 				centers.Set(i, j, rnd.NormFloat64())
@@ -352,7 +351,7 @@ func (n ShiftCenters) ComponentFrom(rands []float64, hyper float64) Component {
 		}
 		return distmv.NewUniform(bounds, nil)
 	}
-	cov := mat64.NewSymDense(n.Dim, nil)
+	cov := mat.NewSymDense(n.Dim, nil)
 	for i := 0; i < n.Dim; i++ {
 		cov.SetSym(i, i, 1)
 	}
@@ -366,7 +365,7 @@ func (n ShiftCenters) ComponentFrom(rands []float64, hyper float64) Component {
 // ClusterCenters generates components according to their cluster. The hyperparameter
 // controls the spread of the cluster locations.
 type ClusterCenters struct {
-	Centers *mat64.Dense
+	Centers *mat.Dense
 	Uniform bool // if true, Uniform components. If false, Gaussian.
 }
 
@@ -401,7 +400,7 @@ func (n ClusterCenters) ComponentFrom(rands []float64, hyper float64) Component 
 		}
 		return distmv.NewUniform(bounds, nil)
 	}
-	cov := mat64.NewSymDense(dim, nil)
+	cov := mat.NewSymDense(dim, nil)
 	for i := 0; i < dim; i++ {
 		cov.SetSym(i, i, 1)
 	}
@@ -434,7 +433,7 @@ func (w GaussianFixedCenter) ComponentFrom(rands []float64, hyper float64) Compo
 
 	// The v matrix is Sigma_0^-1, and Sigma_0 = nu*I. So v = 1/nu * I. We are
 	// computing the cholesky decomposition, so the square root of that
-	cholv := mat64.NewTriDense(dim, matrix.Upper, nil)
+	cholv := mat.NewTriDense(dim, mat.Upper, nil)
 	for i := 0; i < dim; i++ {
 		cholv.SetTri(i, i, math.Sqrt(1/nu))
 	}
@@ -446,7 +445,7 @@ func (w GaussianFixedCenter) ComponentFrom(rands []float64, hyper float64) Compo
 	}
 	rands = rands[dim:]
 
-	u := mat64.NewTriDense(dim, matrix.Upper, nil)
+	u := mat.NewTriDense(dim, mat.Upper, nil)
 	// Get the chi^2 random variables. Diagonal generated from Chi^2 of nu-i
 	// degrees of freedom.
 	for i := 0; i < dim; i++ {
@@ -466,12 +465,12 @@ func (w GaussianFixedCenter) ComponentFrom(rands []float64, hyper float64) Compo
 		}
 	}
 
-	var t mat64.TriDense
+	var t mat.TriDense
 	t.MulTri(u, cholv)
 
-	var c mat64.Cholesky
+	var c mat.Cholesky
 	c.SetFromU(&t)
-	var cov mat64.SymDense
+	var cov mat.SymDense
 	cov.FromCholesky(&c)
 
 	// TODO(btracey): Can set directly from Cholesky.
@@ -550,15 +549,15 @@ func (f FlexibleDim) ComponentFrom(rands []float64, hyper float64) Component {
 	return n
 }
 
-func eyeSym(dim int) *mat64.SymDense {
-	m := mat64.NewSymDense(dim, nil)
+func eyeSym(dim int) *mat.SymDense {
+	m := mat.NewSymDense(dim, nil)
 	for i := 0; i < dim; i++ {
 		m.SetSym(i, i, 1)
 	}
 	return m
 }
 
-func makePlots(run Run, mcEnt []float64, estEnts *mat64.Dense) error {
+func makePlots(run Run, mcEnt []float64, estEnts *mat.Dense) error {
 	// Collect all of the data into lines
 	x := make([]float64, len(run.Hypers))
 	copy(x, run.Hypers)
@@ -577,7 +576,7 @@ func makePlots(run Run, mcEnt []float64, estEnts *mat64.Dense) error {
 	linedata := []interface{}{"Monte Carlo", l}
 
 	for j, estimator := range run.Estimators {
-		y := mat64.Col(nil, j, estEnts)
+		y := mat.Col(nil, j, estEnts)
 		min := floats.Min(y)
 		if min < minEnt {
 			minEnt = min

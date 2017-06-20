@@ -21,10 +21,10 @@ package mixent
 import (
 	"math"
 
-	"github.com/gonum/floats"
-	"github.com/gonum/matrix/mat64"
-	"github.com/gonum/stat"
-	"github.com/gonum/stat/distmv"
+	"gonum.org/v1/gonum/floats"
+	"gonum.org/v1/gonum/mat"
+	"gonum.org/v1/gonum/stat"
+	"gonum.org/v1/gonum/stat/distmv"
 )
 
 var (
@@ -116,7 +116,7 @@ func (ELK) LogKernelNormal(l, r *distmv.Normal) float64 {
 	}
 	covl := l.CovarianceMatrix(nil)
 	covr := r.CovarianceMatrix(nil)
-	covSum := mat64.NewSymDense(l.Dim(), nil)
+	covSum := mat.NewSymDense(l.Dim(), nil)
 	covSum.AddSym(covl, covr)
 	norm, ok := distmv.NewNormal(r.Mean(nil), covSum, nil)
 	if !ok {
@@ -291,22 +291,22 @@ func (p PairwiseDistance) MixtureEntropy(components []Component, weights []float
 // centers.
 type ComponentCenters struct{}
 
-func (ComponentCenters) gaussianCenters(components []Component) *mat64.Dense {
+func (ComponentCenters) gaussianCenters(components []Component) *mat.Dense {
 	r := len(components)
 	c := components[0].(*distmv.Normal).Dim()
 
-	centers := mat64.NewDense(r, c, nil)
+	centers := mat.NewDense(r, c, nil)
 	for i := 0; i < r; i++ {
 		centers.SetRow(i, components[i].(*distmv.Normal).Mean(nil))
 	}
 	return centers
 }
 
-func (ComponentCenters) uniformCenters(components []Component) *mat64.Dense {
+func (ComponentCenters) uniformCenters(components []Component) *mat.Dense {
 	r := len(components)
 	c := components[0].(*distmv.Uniform).Dim()
 
-	centers := mat64.NewDense(r, c, nil)
+	centers := mat.NewDense(r, c, nil)
 	for i := 0; i < r; i++ {
 		b := components[i].(*distmv.Uniform).Bounds(nil)
 		for j := range b {
@@ -323,7 +323,7 @@ func (ComponentCenters) uniformCenters(components []Component) *mat64.Dense {
 //
 // Currently only coded for Gaussian and Uniform components.
 func (comp ComponentCenters) MixtureEntropy(components []Component, weights []float64) float64 {
-	var centers *mat64.Dense
+	var centers *mat.Dense
 	switch components[0].(type) {
 	default:
 		panic("componentcenters: unknown mixture type")

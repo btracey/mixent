@@ -470,8 +470,9 @@ func (w GaussianFixedCenter) ComponentFrom(rands []float64, hyper float64) Compo
 
 	var c mat.Cholesky
 	c.SetFromU(&t)
+
 	var cov mat.SymDense
-	cov.FromCholesky(&c)
+	c.To(&cov)
 
 	// TODO(btracey): Can set directly from Cholesky.
 	norm, ok := distmv.NewNormal(mu, &cov, nil)

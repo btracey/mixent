@@ -12,16 +12,15 @@ import (
 	"math/rand"
 
 	"github.com/btracey/mixent"
-	"github.com/btracey/myplot"
-	"github.com/gonum/plot"
-	"github.com/gonum/plot/plotter"
-	"github.com/gonum/plot/plotutil"
-	"github.com/gonum/plot/vg"
-	"github.com/gonum/plot/vg/draw"
 	"gonum.org/v1/gonum/floats"
 	"gonum.org/v1/gonum/mat"
 	"gonum.org/v1/gonum/stat/distmv"
 	"gonum.org/v1/gonum/stat/distuv"
+	"gonum.org/v1/plot"
+	"gonum.org/v1/plot/plotter"
+	"gonum.org/v1/plot/plotutil"
+	"gonum.org/v1/plot/vg"
+	"gonum.org/v1/plot/vg/draw"
 )
 
 func main() {
@@ -472,7 +471,7 @@ func (w GaussianFixedCenter) ComponentFrom(rands []float64, hyper float64) Compo
 	c.SetFromU(&t)
 
 	var cov mat.SymDense
-	c.To(&cov)
+	c.ToSym(&cov)
 
 	// TODO(btracey): Can set directly from Cholesky.
 	norm, ok := distmv.NewNormal(mu, &cov, nil)
@@ -570,7 +569,13 @@ func makePlots(run Run, mcEnt []float64, estEnts *mat.Dense) error {
 	minEnt := floats.Min(mcEnt)
 	maxEnt := floats.Max(mcEnt)
 
-	l, err := plotter.NewLine(myplot.VecXY{x, mcEnt})
+	pts := make(plotter.XYs, len(x))
+	for i := range pts {
+		pts[i].X = x[i]
+		pts[i].Y = mcEnt[i]
+	}
+
+	l, err := plotter.NewLine(pts)
 	if err != nil {
 		return err
 	}
@@ -594,7 +599,12 @@ func makePlots(run Run, mcEnt []float64, estEnts *mat.Dense) error {
 			continue
 		}
 
-		l, err := plotter.NewLine(myplot.VecXY{x, y})
+		pts2 := make(plotter.XYs, len(x))
+		for i := range pts2 {
+			pts2[i].X = x[i]
+			pts2[i].Y = y[i]
+		}
+		l, err := plotter.NewLine(pts2)
 		if err != nil {
 			return err
 		}
